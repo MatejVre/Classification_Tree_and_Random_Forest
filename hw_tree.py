@@ -3,6 +3,7 @@ import numpy as np
 import random
 from collections import Counter
 import time
+import matplotlib.pyplot as plt
 
 
 def all_columns(X, rand):
@@ -34,21 +35,23 @@ class Tree:
         self.rand = rand  # for replicability
         self.get_candidate_columns = get_candidate_columns  # needed for random forests
         self.min_samples = min_samples
+        self.columns = []
 
     def build(self, X, y):
-        return TreeModel(self.build_tree_recursively(X, y))  # return an object that can do prediction
+        self.columns = []
+        return TreeModel(self.build_tree_recursively(X, y), self.columns)  # return an object that can do prediction
 
     def build_tree_recursively(self, X, y):
-        
         if len(np.unique(y)) == 1:
             return Node(prediction=y[0])
         
         if len(y) < self.min_samples:
             return Node(prediction=Counter(y).most_common(1)[0][0])
         column, threshold = self.best_gini(X, y, self.get_candidate_columns(X, self.rand))
+        self.columns.append(column)
 
         if len(np.unique(X[:, column])) == 1:
-            print("holy shit it happened")
+            #print("holy shit it happened")
             count = Counter(y)
             val, count = count.most_common()[0]
             return Node(prediction=val)
@@ -120,14 +123,21 @@ class Tree:
 
 class TreeModel:
 
-    def __init__(self, root_node = None):
+    def __init__(self, root_node = None, columns= None):
         self.root = root_node
+        self.columns = columns
 
     def predict(self, X):
         predictions = [self.predict_one(self.root, x) for x in X]
         return np.array(predictions)
 
     def predict_one(self, node, x):
+        while node.prediction is None:
+            column_index = node.column_index
+            threshold = node.threshold
+            node = node.left if x[column_index] <= threshold else node.right
+        return node.prediction
+    """
         if node.prediction != None:
             return node.prediction
         else:
@@ -135,7 +145,7 @@ class TreeModel:
                 return self.predict_one(node.left, x)
             else:
                 return self.predict_one(node.right, x)
-
+    """
 
 
 class RandomForest:
@@ -149,22 +159,29 @@ class RandomForest:
 
     def build(self, X, y):
         root_nodes = [0] * self.n
+        OOB_indices_collection = [0] * self.n
         for i in range(self.n):
-            Xb, yb = self.bootstrap_dataset(X, y)
+            Xb, yb, OOB_indices= self.bootstrap_dataset(X, y)
+            OOB_indices_collection[i] = OOB_indices
             root_nodes[i] = self.rftree.build(Xb, yb)
-        return RFModel(root_nodes)  # return an object that can do prediction
+        return RFModel(root_nodes, OOB_indices_collection, X, y)  # return an object that can do prediction
     
     def bootstrap_dataset(self, X, y):
         possible_indices = range(X.shape[0])
-        indices = self.rand.choices(possible_indices, k=X.shape[0])
-        #print(X[indices].shape)
-        return X[indices], y[indices]
+        bootstrap_indices = self.rand.choices(possible_indices, k=X.shape[0])
+        possible_indices_set = set(possible_indices)
+        bootstrap_indices_set = set(bootstrap_indices)
+        out_of_bag_indices = list(possible_indices_set - bootstrap_indices_set)
+        return X[bootstrap_indices], y[bootstrap_indices], out_of_bag_indices
 
 
 class RFModel:
 
-    def __init__(self, trees):
+    def __init__(self, trees, OOB_indices_collection, X, y):
         self.trees = trees
+        self.OOB_indices_collection = OOB_indices_collection
+        self.X = X
+        self.y = y
 
     def predict(self, X):
         predictions = np.zeros(X.shape[0])
@@ -177,9 +194,34 @@ class RFModel:
         return predictions
 
     def importance(self):
+
+        np.random.seed(42)
+        imps_matrix = np.zeros((len(self.trees), self.X.shape[1]))
         imps = np.zeros(self.X.shape[1])
-        # ...
+
+        for i in range(len(self.trees)):
+            X_cur = self.X[self.OOB_indices_collection[i]]
+            y_cur = self.y[self.OOB_indices_collection[i]]
+            predictions = self.trees[i].predict(X_cur)
+            accuracy = self.prediction_accuracy(predictions, y_cur)
+
+            permuted_accuracy_loss_i = np.zeros(self.X.shape[1])
+            X_copy = X_cur.copy()
+
+            for p in self.trees[i].columns:
+                X_copy[:, p] = np.random.permutation(X_copy[:, p])
+                permuted_predictions = self.trees[i].predict(X_copy)
+                permuted_accuracy = self.prediction_accuracy(permuted_predictions, y_cur)
+                permuted_accuracy_loss_i[p] = accuracy - permuted_accuracy
+                X_copy[:, p] = X_cur[:, p]
+
+            imps_matrix[i] = permuted_accuracy_loss_i
+
+        imps = np.mean(imps_matrix, axis=0)
         return imps
+
+    def prediction_accuracy(self, y_pred, y_label):
+        return 1 - misclassification_rate(y_pred, y_label)
 
 def read_tab(fn, adict):
     content = list(csv.reader(open(fn, "rt"), delimiter="\t"))
@@ -196,7 +238,8 @@ def report_metrics(y_pred, y_true):
     misclassification = misclassification_rate(y_pred, y_true)
     SD = np.std(y_pred)
     SE = SD/np.sqrt(len(y_pred))
-    print(f"Misclassification rate: {round(misclassification, 4)} +/- {SE}")
+    #print(f"Misclassification rate: {round(misclassification, 4)} +/- {SE}")
+    return misclassification, SE
     #print(f"Accuracy: {round(misclassification, 4)}")
 
 def hw_tree_full(learn, test):
@@ -207,21 +250,31 @@ def hw_tree_full(learn, test):
     p = t.build(*learn)
     end = time.time()
     print(f"Build time: {end - start}")
-    predictions = p.predict(test[0])
-    report_metrics(predictions, test[1])
+    predictions_learn = p.predict(learn[0])
+    predictions_test = p.predict(test[0])
+    m_train = report_metrics(predictions_learn, learn[1])
+    m_test = report_metrics(predictions_test, test[1])
+    return m_train, m_test
 
 def hw_randomforests(learn, test):
     print("Random Forest")
     print("====================")
     start = time.time()
     rand = random.Random()
-    rand.seed = 42
+    rand.seed(42)
     f = RandomForest(rand=rand, n=100)
     predictor = f.build(*learn)
     end = time.time()
     print(f"Build time: {end - start}")
     predictions = predictor.predict(test[0])
+    start2 = time.time()
     report_metrics(predictions, test[1])
+    imps = predictor.importance()
+    #print(imps)
+    end2 = time.time()
+    print(f"Imp time: {end2 - start2}")
+    plt.bar(range(len(imps)), imps)
+    plt.show()
 
 def misclassification_rate(predictions, labels):
     incorrect = sum(pred != lab for pred, lab in zip(predictions, labels))
