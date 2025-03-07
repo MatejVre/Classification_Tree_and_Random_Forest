@@ -54,15 +54,13 @@ class HWTreeTests(unittest.TestCase):
         self.assertTrue(len(imp), self.X.shape[1])
         self.assertGreater(imp[0], imp[1])
 
-
-"""
     def test_signature_hw_randomforests(self):
         (train, train_un), (test, test_un) = hw_randomforests(self.train, self.test)
         self.assertIsInstance(train, float)
         self.assertIsInstance(test, float)
         self.assertIsInstance(train_un, float)
         self.assertIsInstance(test_un, float)
-""" 
+
 
 if __name__ == "__main__":
     unittest.main()

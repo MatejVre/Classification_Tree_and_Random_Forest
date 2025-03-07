@@ -4,7 +4,7 @@ import random
 from collections import Counter
 import time
 import matplotlib.pyplot as plt
-
+from itertools import combinations
 
 def all_columns(X, rand):
     return range(X.shape[1])    
@@ -39,7 +39,7 @@ class Tree:
 
     def build(self, X, y):
         self.columns = []
-        return TreeModel(self.build_tree_recursively(X, y), self.columns)  # return an object that can do prediction
+        return TreeModel(self.build_tree_recursively(X, y), sorted(self.columns))  #Sorted to have consistent indexing for importances3
 
     def build_tree_recursively(self, X, y):
         if len(np.unique(y)) == 1:
@@ -200,25 +200,56 @@ class RFModel:
         imps = np.zeros(self.X.shape[1])
 
         for i in range(len(self.trees)):
+
+            if len(self.OOB_indices_collection[i]) == 0:
+                continue
+
             X_cur = self.X[self.OOB_indices_collection[i]]
             y_cur = self.y[self.OOB_indices_collection[i]]
             predictions = self.trees[i].predict(X_cur)
             accuracy = self.prediction_accuracy(predictions, y_cur)
 
-            permuted_accuracy_loss_i = np.zeros(self.X.shape[1])
+            #permuted_accuracy_loss_i = np.zeros(self.X.shape[1])
             X_copy = X_cur.copy()
 
             for p in self.trees[i].columns:
                 X_copy[:, p] = np.random.permutation(X_copy[:, p])
                 permuted_predictions = self.trees[i].predict(X_copy)
                 permuted_accuracy = self.prediction_accuracy(permuted_predictions, y_cur)
-                permuted_accuracy_loss_i[p] = accuracy - permuted_accuracy
+                imps[p] += (accuracy - permuted_accuracy)/len(self.trees)
                 X_copy[:, p] = X_cur[:, p]
 
-            imps_matrix[i] = permuted_accuracy_loss_i
+            #imps_matrix[i] = permuted_accuracy_loss_i
 
-        imps = np.mean(imps_matrix, axis=0)
+        #imps = np.mean(imps_matrix, axis=0)
         return imps
+    
+    def importances3(self):
+        
+        np.random.seed(42)
+        imps_matrix = np.zeros((self.X.shape[1], self.X.shape[1], self.X.shape[1]))
+        #imps = np.zeros(self.X.shape[1])
+            
+        for i in range(len(self.trees)):
+            X_cur = self.X[self.OOB_indices_collection[i]]
+            y_cur = self.y[self.OOB_indices_collection[i]]
+            predictions = self.trees[i].predict(X_cur)
+            accuracy = self.prediction_accuracy(predictions, y_cur)
+
+            #permuted_accuracy_loss_i = np.zeros((self.X.shape[1], self.X.shape[1], self.X.shape[1]))
+            X_copy = X_cur.copy()
+
+            for p in combinations(self.trees[i].columns, 3):
+                X_copy[:, p] = np.random.permutation(X_copy[:, p])
+                permuted_predictions = self.trees[i].predict(X_copy)
+                permuted_accuracy = self.prediction_accuracy(permuted_predictions, y_cur)
+                imps_matrix[p[0]][p[1]][p[2]] = (accuracy - permuted_accuracy)/len(self.trees)
+                X_copy[:, p] = X_cur[:, p]
+
+            #imps_matrix[i] = permuted_accuracy_loss_i
+
+        #imps = np.mean(imps_matrix, axis=0)
+        return imps_matrix
 
     def prediction_accuracy(self, y_pred, y_label):
         return 1 - misclassification_rate(y_pred, y_label)
@@ -266,19 +297,43 @@ def hw_randomforests(learn, test):
     predictor = f.build(*learn)
     end = time.time()
     print(f"Build time: {end - start}")
-    predictions = predictor.predict(test[0])
+    predictions_learn = predictor.predict(learn[0])
+    predictions_test = predictor.predict(test[0])
+    m_train = report_metrics(predictions_learn, learn[1])
+    m_test = report_metrics(predictions_test, test[1])
     start2 = time.time()
-    report_metrics(predictions, test[1])
     imps = predictor.importance()
-    #print(imps)
     end2 = time.time()
-    print(f"Imp time: {end2 - start2}")
-    plt.bar(range(len(imps)), imps)
-    plt.show()
+    print(f"Importance took: {end2 - start2}")
+    np.save("importances", imps)
+    
+    #start3 = time.time()
+    #imps3 = predictor.importances3()
+    #end3 = time.time()
+    #print(f"Importances3 took: {end3 - start3}")
+    #print(np.max(imps3))
+    #ind = np.unravel_index(np.argmax(imps3, axis=None), imps3.shape)
+    #print(ind)
+    #plt.bar(range(len(imps)), imps)
+    #plt.show()
+    return m_train, m_test
 
 def misclassification_rate(predictions, labels):
     incorrect = sum(pred != lab for pred, lab in zip(predictions, labels))
     return incorrect/len(labels)
+
+def root_features(X, y):
+    rand = random.Random()
+    rand.seed(42)
+    tree = Tree()
+    feats = []
+    for i in range(100):
+        possible_indices = range(X.shape[0])
+        bootstrap_indices = rand.choices(possible_indices, k=X.shape[0])
+        column, threshold = tree.best_gini(X[bootstrap_indices], y[bootstrap_indices], range(X.shape[1]))
+        feats.append(column)
+    return np.array(feats)
+
 
 def tki():
     legend, Xt, yt = read_tab("tki-train.tab", {"Bcr-abl": 1, "Wild type": 0})
@@ -288,13 +343,10 @@ def tki():
 
 if __name__ == "__main__":
     learn, test, legend = tki()
-    #X = np.array([[4,0,10],
-    #    [4,0,10],
-    #    [4,9,10]])
-    #y = np.array([1, 0, 1])
-    #t = Tree()
-    #t.build(X, y)
 
-    print("full", hw_tree_full(learn, test))
-    print("random forests", hw_randomforests(learn, test))
-    
+    #print("full", hw_tree_full(learn, test))
+    #print("random forests", hw_randomforests(learn, test))
+    feats = root_features(*learn)
+    np.save("root_features", feats)
+    plt.bar(range(len(feats)), feats)
+    plt.show()
