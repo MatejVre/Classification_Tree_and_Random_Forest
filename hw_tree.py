@@ -39,7 +39,7 @@ class Tree:
 
     def build(self, X, y):
         self.columns = []
-        return TreeModel(self.build_tree_recursively(X, y), sorted(self.columns))  #Sorted to have consistent indexing for importances3
+        return TreeModel(self.build_tree_recursively(X, y), sorted(set(self.columns)))  #Sorted to have consistent indexing for importances3
 
     def build_tree_recursively(self, X, y):
         if len(np.unique(y)) == 1:
@@ -48,7 +48,7 @@ class Tree:
         if len(y) < self.min_samples:
             return Node(prediction=Counter(y).most_common(1)[0][0])
         column, threshold = self.best_gini(X, y, self.get_candidate_columns(X, self.rand))
-        self.columns.append(column)
+        self.columns.append(int(column))
 
         if len(np.unique(X[:, column])) == 1:
             #print("holy shit it happened")
@@ -240,7 +240,9 @@ class RFModel:
             X_copy = X_cur.copy()
 
             for p in combinations(self.trees[i].columns, 3):
-                X_copy[:, p] = np.random.permutation(X_copy[:, p])
+                X_copy[:, p[0]] = np.random.permutation(X_copy[:, p[0]])
+                X_copy[:, p[1]] = np.random.permutation(X_copy[:, p[1]])
+                X_copy[:, p[2]] = np.random.permutation(X_copy[:, p[2]])
                 permuted_predictions = self.trees[i].predict(X_copy)
                 permuted_accuracy = self.prediction_accuracy(permuted_predictions, y_cur)
                 imps_matrix[p[0]][p[1]][p[2]] = (accuracy - permuted_accuracy)/len(self.trees)
@@ -306,16 +308,15 @@ def hw_randomforests(learn, test):
     end2 = time.time()
     print(f"Importance took: {end2 - start2}")
     np.save("importances", imps)
-    
-    #start3 = time.time()
-    #imps3 = predictor.importances3()
-    #end3 = time.time()
-    #print(f"Importances3 took: {end3 - start3}")
-    #print(np.max(imps3))
-    #ind = np.unravel_index(np.argmax(imps3, axis=None), imps3.shape)
-    #print(ind)
-    #plt.bar(range(len(imps)), imps)
-    #plt.show()
+    start3 = time.time()
+    imps3 = predictor.importances3()
+    end3 = time.time()
+    print(f"Importances3 took: {end3 - start3}")
+    print(np.max(imps3))
+    ind = np.unravel_index(np.argmax(imps3, axis=None), imps3.shape)
+    print(ind)
+    plt.bar(range(len(imps)), imps)
+    plt.show()
     return m_train, m_test
 
 def misclassification_rate(predictions, labels):
@@ -334,6 +335,27 @@ def root_features(X, y):
         feats.append(column)
     return np.array(feats)
 
+def importances_1000(X, y):
+    
+    rand = random.Random()
+    rand.seed(42)
+    start = time.time()
+    forest = RandomForest(rand=rand, n=1000)
+    predictor = forest.build(X, y)
+    stop = time.time()
+    print(f"Forest took: {stop - start}")
+    start = time.time()
+    imps = predictor.importance()
+    stop = time.time()
+    print(f"Importances took: {stop - start}")
+    np.save("importances_1000", imps)
+    start = time.time()
+    imps3 = predictor.importances3()
+    stop = time.time()
+    print(f"Importances3 took: {stop - start}")
+    np.save("importances3_1000", imps3)
+    
+
 
 def tki():
     legend, Xt, yt = read_tab("tki-train.tab", {"Bcr-abl": 1, "Wild type": 0})
@@ -346,7 +368,4 @@ if __name__ == "__main__":
 
     #print("full", hw_tree_full(learn, test))
     #print("random forests", hw_randomforests(learn, test))
-    feats = root_features(*learn)
-    np.save("root_features", feats)
-    plt.bar(range(len(feats)), feats)
-    plt.show()
+    #importances_1000(*learn)

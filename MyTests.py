@@ -58,7 +58,10 @@ class MiscTests(unittest.TestCase):
 
     #mean and sd of different test sets is a good way of quantifying the uncertainty. But we have only one test set (BOOOTSRAP BABYYYYY!)
     #Bootstrap the errors! 100+?
-    #or SD(e)/sqrt(n)
+    #for SD(e)/sqrt(n)
 
+    #who the report is for? make grading easier.
+    
+ 
 if __name__ == "__main__":
     unittest.main()
