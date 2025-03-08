@@ -289,9 +289,18 @@ def report_metrics(y_pred, y_true):
     misclassification = misclassification_rate(y_pred, y_true)
     SD = np.std(y_pred)
     SE = SD/np.sqrt(len(y_pred))
+    rand = random.Random()
+    rand.seed(42)
 
-    print(f"Misclassification rate: {round(misclassification, 4)} +/- {SE}")
-    return misclassification, SE
+    miscs = []
+    
+    for i in range(150):
+        possible_indices = range(y_pred.shape[0])
+        bootstrap_indices = rand.choices(possible_indices, k=y_pred.shape[0])
+        miscs.append(misclassification_rate(y_pred[bootstrap_indices], y_true[bootstrap_indices]))
+
+    print(f"Misclassification rate: {round(misclassification, 4)} | standard error: {SE} | bootstrap SD: {np.std(miscs)}")
+    return misclassification, np.std(miscs)
 
 
 def hw_tree_full(learn, test):
@@ -331,15 +340,15 @@ def hw_randomforests(learn, test):
     end2 = time.time()
     print(f"Importance took: {end2 - start2}")
 
-    np.save("importances", imps)
+    #np.save("importances", imps)
     start3 = time.time()
     imps3 = predictor.importances3()
     end3 = time.time()
     print(f"Importances3 took: {end3 - start3}")
 
     print(np.max(imps3))
-    ind = np.unravel_index(np.argmax(imps3, axis=None), imps3.shape)
-    print(ind)
+    #ind = np.unravel_index(np.argmax(imps3, axis=None), imps3.shape)
+    #print(ind)
     struct_imps = (predictor.importance3_structure())
     top_3 = sorted(struct_imps.items(), key=lambda x: x[1], reverse=True)[:3]
     print(top_3)
@@ -385,10 +394,29 @@ def important_trees(learn, test):
     rand.seed(42)
     top_3_tree = Tree(rand=rand, get_candidate_columns=get_top_3_features)
     top_3_predictor = top_3_tree.build(*learn)
+    top_3_learn = report_metrics(top_3_predictor.predict(learn[0]), learn[1])
     top_3_test = report_metrics(top_3_predictor.predict(test[0]), test[1])
     top_triplet_tree = Tree(rand=rand, get_candidate_columns=get_top_triplet)
     top_triplet_predictor = top_triplet_tree.build(*learn)
+    top_triplet_test = report_metrics(top_triplet_predictor.predict(learn[0]), learn[1])
     top_triplet_test = report_metrics(top_triplet_predictor.predict(test[0]), test[1])
+
+def misclassification_vs_size(learn, test):
+    misclass = np.zeros(100)
+    uncertainties = np.zeros(100)
+    rand = random.Random()
+    rand.seed(42)
+    f = RandomForest(rand=rand, n=100)
+    p = f.build(*learn)
+    all_trees = p.trees
+
+    for i in range(1, 101):
+        p.trees = all_trees[:i]
+        m, u = report_metrics(p.predict(test[0]), test[1])
+        misclass[i-1] = m
+        uncertainties[i-1] = u
+    return misclass, uncertainties
+
 
 def tki():
     legend, Xt, yt = read_tab("tki-train.tab", {"Bcr-abl": 1, "Wild type": 0})
@@ -399,7 +427,10 @@ def tki():
 if __name__ == "__main__":
     learn, test, legend = tki()
 
-    print("full", hw_tree_full(learn, test))
-    print("random forests", hw_randomforests(learn, test))
+    #hw_tree_full(learn, test)
+    #hw_randomforests(learn, test)
     #importances_1000(*learn)
-    #important_trees(learn, test)
+    important_trees(learn, test)
+    #misclass, uncertainties = misclassification_vs_size(learn, test)
+    #np.save("misclassifications", misclass)
+    #np.save("uncertainties", uncertainties)
