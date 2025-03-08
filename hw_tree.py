@@ -250,6 +250,26 @@ class RFModel:
                 X_copy[:, p] = X_cur[:, p]
 
         return imps_matrix
+    
+    def importance3_structure(self):
+        imps = dict()
+        for t in self.trees:
+            tree_imps = dict.fromkeys(set(t.columns), 0)
+            self.traverse(tree_imps, t.root)
+            for key, value in tree_imps.items():
+                if key not in imps.keys():
+                    imps[key] = value
+                else:
+                    imps[key] += value
+        return imps
+    
+    def traverse(self, dic, node, d=1):
+        
+        if node.prediction != None: #leaf
+            return
+        dic[node.column_index] += 1/d
+        self.traverse(dic, node.left, d=d+1)
+        self.traverse(dic, node.right, d=d+1)
 
     def prediction_accuracy(self, y_pred, y_label):
         return 1 - misclassification_rate(y_pred, y_label)
@@ -316,12 +336,13 @@ def hw_randomforests(learn, test):
     imps3 = predictor.importances3()
     end3 = time.time()
     print(f"Importances3 took: {end3 - start3}")
-    
+
     print(np.max(imps3))
     ind = np.unravel_index(np.argmax(imps3, axis=None), imps3.shape)
     print(ind)
-    plt.bar(range(len(imps)), imps)
-    plt.show()
+    struct_imps = (predictor.importance3_structure())
+    top_3 = sorted(struct_imps.items(), key=lambda x: x[1], reverse=True)[:3]
+    print(top_3)
     return m_train, m_test
 
 def misclassification_rate(predictions, labels):
