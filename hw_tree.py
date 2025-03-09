@@ -5,6 +5,7 @@ from collections import Counter
 import time
 import matplotlib.pyplot as plt
 from itertools import combinations
+from matplotlib.ticker import FuncFormatter
 
 def all_columns(X, rand):
     return range(X.shape[1])    
@@ -23,6 +24,9 @@ def get_top_3_features(X, rand):
 def get_top_triplet(X, rand):
     imps3 = np.load("importances3_1000.npy")
     return np.unravel_index(np.argmax(imps3, axis=None), imps3.shape)
+
+def get_custom_threes(X, rand):
+    return [275, 273, 278]
 
 
 class Node:
@@ -128,9 +132,9 @@ class Tree:
         return best_column, best_threshold
 
     def partition(self, X, y, column, threshold):
-        left_indices = np.where(X[:, column] <= threshold)[0]  # Get indices only
+        left_indices = np.where(X[:, column] <= threshold)[0] #Whole splitting could be improved for better efficiency by only returning indices and never passing data.
         right_indices = np.where(X[:, column] > threshold)[0]
-        return ((X[left_indices], y[left_indices]), (X[right_indices], y[right_indices]))  # Return indices instead of full arrays
+        return ((X[left_indices], y[left_indices]), (X[right_indices], y[right_indices]))
 
 class TreeModel:
 
@@ -261,7 +265,7 @@ class RFModel:
                     imps[key] = value
                 else:
                     imps[key] += value
-        return imps
+        return sorted(imps.items(), key=lambda x: x[1], reverse=True)[:3]
     
     def traverse(self, dic, node, d=1):
         
@@ -347,11 +351,8 @@ def hw_randomforests(learn, test):
     print(f"Importances3 took: {end3 - start3}")
 
     print(np.max(imps3))
-    #ind = np.unravel_index(np.argmax(imps3, axis=None), imps3.shape)
-    #print(ind)
     struct_imps = (predictor.importance3_structure())
-    top_3 = sorted(struct_imps.items(), key=lambda x: x[1], reverse=True)[:3]
-    print(top_3)
+    print(struct_imps) #returns 275, 273, 278
     return m_train, m_test
 
 def misclassification_rate(predictions, labels):
@@ -417,12 +418,76 @@ def misclassification_vs_size(learn, test):
         uncertainties[i-1] = u
     return misclass, uncertainties
 
+def custom_important_tree(learn, test):
+    rand = random.Random()
+    rand.seed(42)
+    t = Tree(rand=rand, get_candidate_columns=get_custom_threes)
+    p = t.build(*learn)
+    report_metrics(p.predict(test[0]), test[1])
 
 def tki():
     legend, Xt, yt = read_tab("tki-train.tab", {"Bcr-abl": 1, "Wild type": 0})
     _, Xv, yv = read_tab("tki-test.tab", {"Bcr-abl": 1, "Wild type": 0})
     return (Xt, yt), (Xv, yv), legend
 
+#==============================================================
+#HELPER METHODS FOR VISUALISATION
+#These were originally in their own files but i included them just in case
+
+def vis2():
+    misclassifications = np.load("misclassifications.npy")
+    uncertainties = np.load("uncertainties.npy")
+
+    plt.figure(figsize=(8,4))
+    plt.plot(range(1, len(misclassifications)+1), misclassifications[:], label="Misclassification rate")
+    plt.fill_between(range(1, len(misclassifications)+1), 
+                    misclassifications[:] - uncertainties[:], 
+                    misclassifications[:] + uncertainties[:], 
+                    color="blue", alpha=0.2, label="Uncertainty")
+    plt.ylim((0.0))
+    plt.legend()
+    plt.xlim((1,100))
+    plt.grid("y")
+    plt.ylabel("Misclassification rate")
+    plt.xlabel("Number of trees")
+    plt.savefig("misclassifications_with_uncertainties.pdf", bbox_inches="tight")
+    plt.show()
+
+def custom_tick_format(x, pos):
+    return f"{x * 2 + 1000:.0f}"
+
+def vis():
+    importances = np.load("importances.npy")
+    features = np.load("root_features.npy")
+    counter = dict.fromkeys(range(len(importances)), 0)
+    for i in features:
+        counter[i] += 1
+
+    vals = [v for v in counter.values()]
+        
+    figure, axis = plt.subplots()
+    axis.bar(range(len(importances)), importances, width=1.3, label="Feature importances")
+    axis.set_ylabel("Feature importance")
+    axis.set_xlim(0, 400)
+    axis.set_ylim((-0.002, 0.016))
+    axis.xaxis.set_major_formatter(FuncFormatter(custom_tick_format))
+
+    axis2 = axis.twinx()
+    axis2.plot(range(len(importances)), vals, color='#d62728', alpha=1, label="Root feature count")
+    axis2.set_ylabel("Root feature count")
+
+    axis2.set_xlim(0, 396)
+    axis2.set_ylim((-10, 80))
+
+    axis.set_xlabel("Feature")
+    handles1, labels1 = axis.get_legend_handles_labels()
+    handles2, labels2 = axis2.get_legend_handles_labels()
+
+    axis.grid(axis="y")
+    axis.set_axisbelow(True)
+    axis.legend(handles1 + handles2, labels1 + labels2, loc="upper left")
+    plt.savefig("importances.pdf", bbox_inches="tight")
+    plt.show()
 
 if __name__ == "__main__":
     learn, test, legend = tki()
@@ -430,7 +495,8 @@ if __name__ == "__main__":
     #hw_tree_full(learn, test)
     #hw_randomforests(learn, test)
     #importances_1000(*learn)
-    important_trees(learn, test)
+    #important_trees(learn, test)
     #misclass, uncertainties = misclassification_vs_size(learn, test)
     #np.save("misclassifications", misclass)
     #np.save("uncertainties", uncertainties)
+    #custom_important_tree(learn, test)
